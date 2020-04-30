@@ -166,7 +166,13 @@ func (s *CmppConn) Read() (protocol.Operation, error) {
 	}
 
 	sequenceID := op.GetHeader().Sequence_Id
-	atomic.SwapUint32(&s.responseSequenceID, sequenceID)
+
+	commandID := op.GetHeader().Command_Id
+	if commandID == protocol.CMPP_SUBMIT_RESP ||
+		commandID == protocol.CMPP_ACTIVE_TEST_RESP ||
+		commandID == protocol.CMPP_TERMINATE_RESP {
+		atomic.SwapUint32(&s.responseSequenceID, sequenceID)
+	}
 	atomic.SwapInt64(&s.latestResponseInSec, time.Now().Unix())
 
 	// TODO: pooling
