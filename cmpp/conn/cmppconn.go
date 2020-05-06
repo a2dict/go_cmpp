@@ -2,12 +2,15 @@ package conn
 
 import (
 	"errors"
+	"math/rand"
 	"net"
 	"sync/atomic"
 	"time"
 
 	"github.com/yedamao/go_cmpp/cmpp/protocol"
 )
+
+var sequenceIDRdn = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 type SequenceFunc func() uint32
 
@@ -17,7 +20,6 @@ type SequenceFunc func() uint32
 // 3. 异步响应处理
 type CmppConn struct {
 	Conn
-	newSeqNum SequenceFunc
 
 	currentSequenceID   uint32
 	responseSequenceID  uint32
@@ -29,16 +31,15 @@ type CmppConn struct {
 
 func NewCmppConn(
 	addr string, sourceAddr, sharedSecret string,
-	newSeqNum SequenceFunc,
 ) (*CmppConn, error) {
-	if nil == newSeqNum {
-		return nil, errors.New("newSeqNum must not be nil")
-	}
+
+	initSequenceID := sequenceIDRdn.Uint32()
 
 	s := &CmppConn{
-		newSeqNum:        newSeqNum,
-		opHandlerStorage: NewOpHandlerStorage(64),
-		spId:             sourceAddr,
+		currentSequenceID:  initSequenceID,
+		responseSequenceID: initSequenceID,
+		opHandlerStorage:   NewOpHandlerStorage(64),
+		spId:               sourceAddr,
 	}
 
 	if err := s.connect(addr); err != nil {
@@ -259,4 +260,8 @@ func (s *CmppConn) Idle() time.Duration {
 	latestResponse := time.Unix(s.latestResponseInSec, 0)
 	now := time.Now()
 	return now.Sub(latestResponse)
+}
+
+func (s *CmppConn) newSeqNum() uint32 {
+	return atomic.AddUint32(&s.currentSequenceID, 1)
 }

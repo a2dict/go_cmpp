@@ -11,6 +11,7 @@ import (
 
 var (
 	longtextRefIndex = rand.New(rand.NewSource(time.Now().UnixNano())).Uint32()
+	LongtextPrefixBS = []byte{0x05, 0x00, 0x03}
 )
 
 type LongTextMessage struct {
@@ -78,5 +79,10 @@ func SplitLongText(content string) *LongTextMessage {
 }
 
 func getPduPrefix(ref, total, no byte) []byte {
-	return []byte{0x05, 0x00, 0x03, ref, total, no}
+	bf := bytes.Buffer{}
+	bf.Write(LongtextPrefixBS)
+	bf.WriteByte(ref)
+	bf.WriteByte(total)
+	bf.WriteByte(no)
+	return bf.Bytes()
 }

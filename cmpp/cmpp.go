@@ -2,7 +2,6 @@ package cmpp
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,37 +20,29 @@ type CmppConf struct {
 	SrcId     string
 }
 
-func NewCmpp(name string, c CmppConf, deliverHandler DeliverHandler) (*Cmpp, error) {
-	var idx uint32
-	seqFn := func() uint32 {
-		atomic.AddUint32(&idx, 1)
-		return idx
-	}
+func NewLongtextCmpp(c CmppConf, deliverHandler DeliverHandler) (*LongtextCmpp, error) {
 
-	cmppConn, err := conn.NewCmppConn(c.Addr, c.SourceAddr, c.SharedSecret, seqFn)
+	cmppConn, err := conn.NewCmppConn(c.Addr, c.SourceAddr, c.SharedSecret)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Cmpp{
-		name:           name,
+	return &LongtextCmpp{
 		cc:             cmppConn,
-		newSeqNum:      seqFn,
 		deliverHandler: deliverHandler,
 		conf:           c,
 	}, nil
 }
 
-// Cmpp 客户端
+// LongtextCmpp 客户端
 // 在 CmppConn上增加
 // 1. 自动keepalive
 // 2. 断线重连
 // 3. Deliver处理
 // 4. 同步发送长短信
-type Cmpp struct {
+// TODO: 长文本上行
+type LongtextCmpp struct {
 	sync.RWMutex
-
-	name string
 
 	cc             *conn.CmppConn
 	newSeqNum      conn.SequenceFunc
@@ -75,7 +66,7 @@ type Segment struct {
 	Content string
 }
 
-func (c *Cmpp) SubmitLongtext(phone, content, serviceID, srcID string) (*SubmitLongtextResp, error) {
+func (c *LongtextCmpp) SubmitLongtext(phone, content, serviceID, srcID string) (*SubmitLongtextResp, error) {
 	ltm := protocol.SplitLongText(content)
 
 	ret := &SubmitLongtextResp{
@@ -111,7 +102,7 @@ func (c *Cmpp) SubmitLongtext(phone, content, serviceID, srcID string) (*SubmitL
 	return ret, nil
 }
 
-func (c *Cmpp) syncSubmit(pkTotal, pkNumber, needReport, msgLevel uint8,
+func (c *LongtextCmpp) syncSubmit(pkTotal, pkNumber, needReport, msgLevel uint8,
 	serviceId string, feeUserType uint8, feeTerminalId string,
 	msgFmt uint8, feeType, feeCode, srcId string,
 	destTermId []string, content []byte) (*protocol.SubmitResp, error) {
@@ -138,11 +129,12 @@ func (c *Cmpp) syncSubmit(pkTotal, pkNumber, needReport, msgLevel uint8,
 
 }
 
-func (c *Cmpp) ResetConn() error {
+func (c *LongtextCmpp) ResetConn() error {
 	c.Lock()
 	defer c.Unlock()
+	log.Debugf("reset_conn, conf:%+v", c.conf)
 
-	cmppConn, err := conn.NewCmppConn(c.conf.Addr, c.conf.SourceAddr, c.conf.SharedSecret, c.newSeqNum)
+	cmppConn, err := conn.NewCmppConn(c.conf.Addr, c.conf.SourceAddr, c.conf.SharedSecret)
 	if err != nil {
 		return err
 	}
@@ -151,7 +143,7 @@ func (c *Cmpp) ResetConn() error {
 }
 
 // Close CmppConn and set available=false
-func (c *Cmpp) Close() {
+func (c *LongtextCmpp) Close() {
 	log.Debugf("close cmpp:%v", c)
 	c.Lock()
 	defer c.Unlock()
@@ -160,7 +152,7 @@ func (c *Cmpp) Close() {
 }
 
 // Open CmppConn
-func (c *Cmpp) Open() {
+func (c *LongtextCmpp) Open() {
 	c.Lock()
 	c.available = true
 	c.Unlock()
@@ -232,7 +224,7 @@ func (c *Cmpp) Open() {
 }
 
 // KeepOpen  cmpp连接断开自动重连
-func (c *Cmpp) KeepOpen() {
+func (c *LongtextCmpp) KeepOpen() {
 	go func() {
 		ti := time.NewTicker(3 * time.Second)
 		for {
@@ -244,7 +236,7 @@ func (c *Cmpp) KeepOpen() {
 				if !c.IsAvailable() {
 					err := c.ResetConn()
 					if err != nil {
-						log.Errorf("fail to reset_conn, name:%v, err:%v", c.name, err)
+						log.Errorf("fail to reset_conn, conf:%v, err:%v", c.conf, err)
 					}
 					c.Open()
 				}
@@ -254,11 +246,11 @@ func (c *Cmpp) KeepOpen() {
 	}()
 }
 
-func (c *Cmpp) Exit() {
+func (c *LongtextCmpp) Exit() {
 	c.done <- struct{}{}
 }
 
-func (c *Cmpp) IsAvailable() bool {
+func (c *LongtextCmpp) IsAvailable() bool {
 	c.RLock()
 	defer c.RUnlock()
 	return c.available
